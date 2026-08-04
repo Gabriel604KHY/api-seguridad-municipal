@@ -2,41 +2,126 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Ticket;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
 
 class TicketApiController extends Controller
 {
     /**
-     * Crear una nueva solicitud de soporte (Lógica de negocio e inserción DML)
+     * Crear un ticket municipal y asociarlo al usuario autenticado.
      */
-    public function crearTicket(Request $request)
+    public function crearTicket(Request $request): JsonResponse
     {
-        // 1. Control de datos e integridad referencial
-        $validador = Validator::make($request->all(), [
-            'user_id' => 'required|integer',
-            'titulo' => 'required|string|max:150',
-            'descripcion' => 'required|string'
-        ]);
+        $usuario = $request->user();
 
-        if ($validador->fails()) {
-            return response()->json(['error' => 'Datos de solicitud inválidos', 'detalles' => $validador->errors()], 400);
+        if (!$usuario) {
+            return response()->json([
+                'mensaje' => 'Debes iniciar sesión para crear un ticket.',
+            ], 401);
         }
 
-        // 2. Sanitización estricta contra código malicioso (XSS)
-        $tituloLimpio = strip_tags($request->titulo);
-        $descripcionLimpia = strip_tags($request->descripcion);
+        /*
+        |--------------------------------------------------------------------------
+        | Normalización de datos
+        |--------------------------------------------------------------------------
+        */
 
-        // 3. Simulación de persistencia de datos (Operación SQL DML)
+        $request->merge([
+            'titulo' => trim(
+                strip_tags((string) $request->input('titulo'))
+            ),
+            'descripcion' => trim(
+                strip_tags((string) $request->input('descripcion'))
+            ),
+            'categoria' => strtolower(
+                trim((string) $request->input('categoria', 'general'))
+            ),
+            'prioridad' => strtolower(
+                trim((string) $request->input('prioridad', 'media'))
+            ),
+            'ubicacion' => trim(
+                strip_tags((string) $request->input('ubicacion', ''))
+            ),
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Validación
+        |--------------------------------------------------------------------------
+        */
+
+        $datos = $request->validate([
+            'titulo' => [
+                'required',
+                'string',
+                'min:3',
+                'max:150',
+            ],
+            'descripcion' => [
+                'required',
+                'string',
+                'min:10',
+                'max:5000',
+            ],
+            'categoria' => [
+                'nullable',
+                'string',
+                'max:50',
+            ],
+            'prioridad' => [
+                'nullable',
+                'string',
+                'in:baja,media,alta,critica',
+            ],
+            'ubicacion' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Creación del ticket
+        |--------------------------------------------------------------------------
+        |
+        | user_id se obtiene del token de Sanctum. El cliente no puede elegir
+        | el usuario propietario del ticket.
+        |
+        */
+
+        $ticket = new Ticket();
+
+        $ticket->user_id = $usuario->id;
+        $ticket->titulo = $datos['titulo'];
+        $ticket->descripcion = $datos['descripcion'];
+        $ticket->categoria = $datos['categoria'] ?: 'general';
+        $ticket->prioridad = $datos['prioridad'] ?: Ticket::PRIORIDAD_MEDIA;
+        $ticket->estado = Ticket::ESTADO_ABIERTO;
+        $ticket->ubicacion = $datos['ubicacion'] ?: null;
+
+        $ticket->save();
+
         return response()->json([
-            'mensaje' => 'Solicitud de soporte municipal procesada exitosamente en el sistema relacional',
+            'mensaje' => 'Ticket municipal creado correctamente.',
             'ticket' => [
-                'user_id' => $request->user_id,
-                'titulo' => $tituloLimpio,
-                'descripcion' => $descripcionLimpia,
-                'estado' => 'pendiente',
-                'created_at' => now()
-            ]
+                'id' => $ticket->id,
+                'user_id' => $ticket->user_id,
+                'titulo' => $ticket->titulo,
+                'descripcion' => $ticket->descripcion,
+                'categoria' => $ticket->categoria,
+                'prioridad' => $ticket->prioridad,
+                'estado' => $ticket->estado,
+                'ubicacion' => $ticket->ubicacion,
+                'created_at' => $ticket->created_at,
+            ],
+            'usuario' => [
+                'id' => $usuario->id,
+                'name' => $usuario->name,
+                'email' => $usuario->email,
+                'role' => $usuario->role,
+            ],
         ], 201);
     }
 }

@@ -3,48 +3,190 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Validator;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthApiController extends Controller
 {
     /**
-     * Registro seguro de usuarios municipales (Sanitización y mitigación XSS/Inyecciones)
+     * Registrar un nuevo usuario municipal.
      */
-    public function registrar(Request $request)
+    public function registrar(Request $request): JsonResponse
     {
-        // 1. Validación estricta contra inyecciones de datos
-        $validador = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8',
+        // Normalizar los datos antes de validarlos.
+        $request->merge([
+            'name' => trim(
+                strip_tags((string) $request->input('name'))
+            ),
+            'email' => strtolower(
+                trim((string) $request->input('email'))
+            ),
         ]);
 
-        if ($validador->fails()) {
-            return response()->json([
-                'error' => 'Error de validación de datos',
-                'mensajes' => $validador->errors()
-            ], 400);
-        }
+        $datos = $request->validate([
+            'name' => [
+                'required',
+                'string',
+                'min:2',
+                'max:255',
+            ],
+            'email' => [
+                'required',
+                'string',
+                'email',
+                'max:255',
+                'unique:users,email',
+            ],
+            'password' => [
+                'required',
+                'string',
+                'min:8',
+            ],
+            'device_name' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
+        ]);
 
-        // 2. Sanitización explícita contra ataques Cross-Site Scripting (XSS)
-        $nombreSanitizado = strip_tags($request->name);
-
-        // 3. Persistencia segura con encriptación hash (Integridad de datos)
         $usuario = User::create([
-            'name' => $nombreSanitizado,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
+            'name' => $datos['name'],
+            'email' => $datos['email'],
+            'password' => Hash::make(
+                $datos['password']
+            ),
         ]);
 
-        // 4. Emisión de Token de acceso seguro (Implementación tipo JWT/Bearer)
-        $token = $usuario->createToken('auth_token_municipal')->plainTextToken;
+        $nombreToken = $datos['device_name']
+            ?? 'api-seguridad-municipal';
+
+        $token = $usuario
+            ->createToken($nombreToken)
+            ->plainTextToken;
 
         return response()->json([
-            'mensaje' => 'Usuario registrado exitosamente en el sistema de soporte municipal',
+            'mensaje' => 'Usuario registrado correctamente.',
+            'usuario' => [
+                'id' => $usuario->id,
+                'name' => $usuario->name,
+                'email' => $usuario->email,
+            ],
             'access_token' => $token,
             'token_type' => 'Bearer',
         ], 201);
+    }
+
+    /**
+     * Iniciar sesión y generar un token de acceso.
+     */
+    public function login(Request $request): JsonResponse
+    {
+        $request->merge([
+            'email' => strtolower(
+                trim((string) $request->input('email'))
+            ),
+        ]);
+
+        $datos = $request->validate([
+            'email' => [
+                'required',
+                'string',
+                'email',
+            ],
+            'password' => [
+                'required',
+                'string',
+            ],
+            'device_name' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
+        ]);
+
+$usuario = User::query()
+    ->where('email', $datos['email'])
+    ->first();
+
+        if (
+            !$usuario ||
+            !Hash::check(
+                $datos['password'],
+                $usuario->password
+            )
+        ) {
+            return response()->json([
+                'mensaje' => 'El correo o la contraseña no son correctos.',
+            ], 401);
+        }
+
+        $nombreToken = $datos['device_name']
+            ?? 'api-seguridad-municipal';
+
+        $token = $usuario
+            ->createToken($nombreToken)
+            ->plainTextToken;
+
+        return response()->json([
+            'mensaje' => 'Inicio de sesión exitoso.',
+            'usuario' => [
+                'id' => $usuario->id,
+                'name' => $usuario->name,
+                'email' => $usuario->email,
+            ],
+            'access_token' => $token,
+            'token_type' => 'Bearer',
+        ], 200);
+    }
+
+    /**
+     * Obtener los datos del usuario autenticado.
+     */
+    public function usuario(Request $request): JsonResponse
+    {
+        $usuario = $request->user();
+
+        if (!$usuario) {
+            return response()->json([
+                'mensaje' => 'Usuario no autenticado.',
+            ], 401);
+        }
+
+        return response()->json([
+            'mensaje' => 'Usuario autenticado correctamente.',
+            'usuario' => [
+                'id' => $usuario->id,
+                'name' => $usuario->name,
+                'email' => $usuario->email,
+                'created_at' => $usuario->created_at,
+                'updated_at' => $usuario->updated_at,
+            ],
+        ], 200);
+    }
+
+    /**
+     * Cerrar sesión y eliminar el token utilizado.
+     */
+    public function logout(Request $request): JsonResponse
+    {
+        $usuario = $request->user();
+
+        if (!$usuario) {
+            return response()->json([
+                'mensaje' => 'Usuario no autenticado.',
+            ], 401);
+        }
+
+        $tokenActual = $usuario->currentAccessToken();
+
+        if ($tokenActual instanceof PersonalAccessToken) {
+            $tokenActual->delete();
+        }
+
+        return response()->json([
+            'mensaje' => 'Sesión cerrada correctamente.',
+        ], 200);
     }
 }
