@@ -2,38 +2,65 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Http;
+use Throwable;
 
 class MunicipalServiceController extends Controller
 {
     /**
-     * Consumo de API externa para obtener indicadores económicos del día
-     * Demuestra el uso de WebServices de terceros solicitado en el perfil de cargo.
+     * Obtener indicadores económicos chilenos desde una API externa.
      */
-    public function obtenerIndicadoresEconomicos()
+    public function obtenerIndicadoresEconomicos(): JsonResponse
     {
-        // Consumo asíncrono y seguro de un servicio externo público chileno
-        $respuesta = Http::get('https://mindicador.cl');
+        try {
+            $respuesta = Http::acceptJson()
+                ->timeout(15)
+                ->retry(2, 500)
+                ->get('https://mindicador.cl/api');
 
-        if ($respuesta->failed()) {
+            if ($respuesta->failed()) {
+                return response()->json([
+                    'error' => 'El servicio externo de indicadores respondió con un error.',
+                ], 502);
+            }
+
+            $datos = $respuesta->json();
+
+            $indicadores = [
+                'uf' => data_get($datos, 'uf.valor'),
+                'utm' => data_get($datos, 'utm.valor'),
+                'dolar' => data_get($datos, 'dolar.valor'),
+                'euro' => data_get($datos, 'euro.valor'),
+            ];
+
+            $sinDatos = collect($indicadores)
+                ->every(
+                    fn ($valor): bool => $valor === null
+                );
+
+            if ($sinDatos) {
+                return response()->json([
+                    'error' => 'El servicio externo no entregó indicadores válidos.',
+                ], 502);
+            }
+
             return response()->json([
-                'error' => 'No se pudo conectar con el WebService externo de indicadores financieros'
-            ], 500);
+                'mensaje' => 'Indicadores económicos obtenidos correctamente.',
+                'origen' => 'mindicador.cl',
+                'indicadores' => [
+                    'uf' => $indicadores['uf'] ?? 'No disponible',
+                    'utm' => $indicadores['utm'] ?? 'No disponible',
+                    'dolar' => $indicadores['dolar'] ?? 'No disponible',
+                    'euro' => $indicadores['euro'] ?? 'No disponible',
+                ],
+            ], 200);
+        } catch (Throwable $error) {
+            report($error);
+
+            return response()->json([
+                'error' => 'No fue posible conectar con el servicio externo de indicadores.',
+            ], 503);
         }
-
-        $datos = $respuesta->json();
-
-        // Estructuración de datos limpios para el uso de dependencias municipales
-        return response()->json([
-            'mensaje' => 'Datos financieros obtenidos exitosamente mediante API de terceros',
-            'origen' => 'mindicador.cl',
-            'indicadores' => [
-                'uf' => $datos['uf']['valor'] ?? 'No disponible',
-                'utm' => $datos['utm']['valor'] ?? 'No disponible',
-                'dolar' => $datos['dolar']['valor'] ?? 'No disponible',
-                'euro' => $datos['euro']['valor'] ?? 'No disponible'
-            ]
-        ], 200);
     }
 }
