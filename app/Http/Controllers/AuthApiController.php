@@ -15,7 +15,6 @@ class AuthApiController extends Controller
      */
     public function registrar(Request $request): JsonResponse
     {
-        // Normalizar los datos antes de validarlos.
         $request->merge([
             'name' => trim(
                 strip_tags((string) $request->input('name'))
@@ -54,9 +53,7 @@ class AuthApiController extends Controller
         $usuario = User::create([
             'name' => $datos['name'],
             'email' => $datos['email'],
-            'password' => Hash::make(
-                $datos['password']
-            ),
+            'password' => Hash::make($datos['password']),
         ]);
 
         $nombreToken = $datos['device_name']
@@ -72,6 +69,7 @@ class AuthApiController extends Controller
                 'id' => $usuario->id,
                 'name' => $usuario->name,
                 'email' => $usuario->email,
+                'role' => $usuario->role,
             ],
             'access_token' => $token,
             'token_type' => 'Bearer',
@@ -106,9 +104,9 @@ class AuthApiController extends Controller
             ],
         ]);
 
-$usuario = User::query()
-    ->where('email', $datos['email'])
-    ->first();
+        $usuario = User::query()
+            ->where('email', $datos['email'])
+            ->first();
 
         if (
             !$usuario ||
@@ -135,6 +133,7 @@ $usuario = User::query()
                 'id' => $usuario->id,
                 'name' => $usuario->name,
                 'email' => $usuario->email,
+                'role' => $usuario->role,
             ],
             'access_token' => $token,
             'token_type' => 'Bearer',
@@ -160,6 +159,7 @@ $usuario = User::query()
                 'id' => $usuario->id,
                 'name' => $usuario->name,
                 'email' => $usuario->email,
+                'role' => $usuario->role,
                 'created_at' => $usuario->created_at,
                 'updated_at' => $usuario->updated_at,
             ],
