@@ -41,16 +41,33 @@ Route::prefix('v1/municipal')->group(function () {
         ]);
 
         /*
-        | Administradores y supervisores.
+        |--------------------------------------------------------------------------
+        | Indicadores
+        |--------------------------------------------------------------------------
+        | Acceso para administradores y supervisores.
         */
+
         Route::get('/indicadores', [
             MunicipalServiceController::class,
             'obtenerIndicadoresEconomicos',
-        ])->middleware('rol:administrador,supervisor');
+        ])->middleware(
+            'rol:administrador,supervisor'
+        );
 
         /*
-        | Todos los roles municipales.
+        |--------------------------------------------------------------------------
+        | Tickets
+        |--------------------------------------------------------------------------
+        | Acceso para administradores, supervisores y operadores.
         */
+
+        Route::get('/tickets', [
+            TicketApiController::class,
+            'listarTickets',
+        ])->middleware(
+            'rol:administrador,supervisor,operador'
+        );
+
         Route::post('/tickets', [
             TicketApiController::class,
             'crearTicket',
@@ -59,18 +76,23 @@ Route::prefix('v1/municipal')->group(function () {
         );
 
         /*
-        | Ruta temporal para comprobar el rol administrador.
+        |--------------------------------------------------------------------------
+        | Verificación administrativa
+        |--------------------------------------------------------------------------
         */
+
         Route::get(
             '/admin/verificar',
             function (Request $request) {
+                $usuario = $request->user();
+
                 return response()->json([
                     'mensaje' => 'Acceso de administrador autorizado.',
                     'usuario' => [
-                        'id' => $request->user()->id,
-                        'name' => $request->user()->name,
-                        'email' => $request->user()->email,
-                        'role' => $request->user()->role,
+                        'id' => $usuario->id,
+                        'name' => $usuario->name,
+                        'email' => $usuario->email,
+                        'role' => $usuario->role,
                     ],
                 ]);
             }
